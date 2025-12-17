@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Container Load Planner IKK</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="styles.css">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/DragControls.js"></script> 
+    <script src="https://cdn.jsdelivr.net/npm/@tweenjs/tween.js@18.6.4/dist/tween.umd.js"></script> 
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+
+</head>
+<body>
+    <header>
+        <h1>🚚 Container Load Planner IKK 🚚</h1>
+    </header>
+
+    <div id="main-content">
+        <section class="control-panel">
+            <h2>⚙️ Control Panel</h2>
+            <div class="control-group">
+                <label for="moda-selector">Pilih Moda:</label>
+                <select id="moda-selector" style="width: 100%;">
+                    <option value="40HC">40ft HC (12.2 x 2.45 x 2.48)</option>
+                    <option value="20GP">20ft GP (6.2 x 2.5 x 2.5)</option>
+                    <option value="WINGBOX">Wing Box (11.0 x 2.4 x 2.45)</option>
+                    <option value="TRAILER_LOSSBAK">Trailer Lossbak (12.0 x 2.45 x T-Bebas)</option>
+                    <option value="TRONTON_LOSSBAK">Tronton Lossbak (9.5 x 2.4 x T-Bebas)</option>
+                    <option value="custom">Custom</option>
+                </select>
+                <div id="current-moda-display" class="info" style="margin-top: 5px; font-size: 0.9em; font-weight: bold;"></div>
+            </div>
+            
+            <div class="control-group">
+                <button id="add-material-btn" class="primary-btn">➕ Tambah Roll Baru</button>
+            </div>
+
+            <div class="separator"></div>
+
+            <div id="material-list">
+                </div>
+            
+            <div class="separator"></div>
+            
+            <div class="control-group">
+                <button id="visualize-btn" class="success-btn">▶️ Visualisasi</button>
+                <button id="auto-recommend-btn" class="primary-btn" style="margin-left: 10px;">✨ Rekomendasi Otomatis</button>
+                <div id="weight-status" class="info" style="margin-top: 10px; font-weight: bold;">Total Berat: 0 kg</div>
+            </div>
+
+            <div class="control-group" style="margin-top: 20px;">
+                <button id="move-btn" class="secondary-btn" style="width: 49%;">🔄 Atur Posisi (Drag)</button>
+                <button id="save-btn" class="success-btn" style="width: 49%; display: none;">✅ Selesai Atur</button>
+            </div>
+            
+            <div class="separator"></div>
+            
+            <div class="control-group">
+                <label for="import-data">Import Data (Paste):</label>
+                <textarea id="import-data" placeholder="Format: ID, Deskripsi, D_roll(m), W_roll(m), Berat(kg), Qty" rows="3"></textarea>
+                <button id="import-btn" class="primary-btn" style="margin-top: 5px;">📤 Import & Replace All</button>
+            </div>
+        </section>
+
+        <section class="visualization-area">
+            <div id="visualization-container">
+                </div>
+            <div class="control-group crane-control">
+                <button id="crane-toggle-btn" class="primary-btn">🏗️ Tampilkan Crane</button>
+                <button id="crane-lift-btn" class="secondary-btn">⬆️ Angkat Kontainer</button>
+            </div>
+            <div id="status-message" class="status-box info"></div>
+        </section>
+    </div>
+
+    <template id="material-item-template">
+        <div class="material-item" style="position: relative;">
+            <input type="text" class="material-id" placeholder="Material ID/Deskripsi" style="width: 100%; margin-bottom: 5px;">
+            <div class="dims-cylinder" style="display: flex; gap: 5px; justify-content: space-between;">
+                D:<input type="number" class="dim-d" placeholder="Dia." readonly style="width: 50px;">
+                T:<input type="number" class="dim-h-cyl" placeholder="T" readonly style="width: 50px;">
+                 Berat:<input type="number" class="weight" placeholder="Kg" readonly style="width: 50px;">
+            </div>
+            
+            <div style="margin-top: 10px;">
+                Qty:<input type="number" class="quantity" placeholder="Jml" value="1" style="width: 60px;" min="1">
+            </div>
+            
+            <button class="remove-material-btn danger-btn">X</button>
+            <input type="hidden" class="shape-type" value="CYLINDER">
+        </div>
+    </template>
+    
+    <div id="custom-modal" class="modal-backdrop" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 id="modal-title">Notifikasi</h4>
+            </div>
+            <div class="modal-body">
+                <p id="modal-message">Pesan disini.</p>
+            </div>
+            <div class="modal-footer">
+                 <button class="modal-ok-btn primary-btn">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
