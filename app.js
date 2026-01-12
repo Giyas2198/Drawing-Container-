@@ -45,6 +45,7 @@ let itemsInScene = []; // Array untuk menyimpan objek material (roll) yang ada d
 // --- VARIABEL UNTUK DRAG CONTROL ---
 let isMoveModeActive = false; // Status apakah mode drag aktif atau tidak
 let dragControls; // Objek DragControls Three.js
+let selectedObject = null;
 // -----------------------------------------------------------
 
 // Crane Components
@@ -69,8 +70,8 @@ const MODA_DIMENSIONS = {
     '40HC': { name: '40ft HC', type: 'CONTAINER', L: 12.2, W: 2.45, H: 2.48, maxWeight: 30000 },
     '20GP': { name: '20ft GP', type: 'CONTAINER', L: 6.2, W: 2.5, H: 2.5, maxWeight: 24000 },
     'WINGBOX': { name: 'Wing Box', type: 'CONTAINER', L: 11.0, W: 2.4, H: 2.45, maxWeight: 28000 },
-    'TRAILER_LOSSBAK': { name: 'Trailer Lossbak', type: 'LOSSBAK', L: 12.0, W: 2.45, H: 0.1, maxHeight: 999, maxWeight: 32000 },
-    'TRONTON_LOSSBAK': { name: 'Tronton Lossbak', type: 'LOSSBAK', L: 9.5, W: 2.4, H: 0.1, maxHeight: 999, maxWeight: 15000 },
+    'TRAILER_LOSSBAK': { name: 'Trailer Lossbak', type: 'LOSSBAK', L: 12.0, W: 2.45, H: 0.1, maxHeight: 3.1, maxWeight: 32000 },
+    'TRONTON_LOSSBAK': { name: 'Tronton Lossbak', type: 'LOSSBAK', L: 9.5, W: 2.4, H: 0.1, maxHeight: 3.1, maxWeight: 15000 },
     'custom': { name: 'Custom', type: 'CONTAINER', L: 12.2, W: 2.45, H: 2.48, maxWeight: 30000 }
 };
 let currentModa = MODA_DIMENSIONS['40HC'];
@@ -87,12 +88,45 @@ function showStatus(msg, type = 'info') {
 }
 
 /** Menampilkan modal custom */
-function showModal(title, message, type = 'info') {
+/** Menampilkan modal custom dengan opsi Lanjut/Batal */
+function showModal(title, message, type = 'info', onConfirm = null) {
     const modal = document.getElementById('custom-modal');
     if (!modal) return;
+    
     document.getElementById('modal-title').textContent = title;
     document.getElementById('modal-message').textContent = message;
     modal.style.display = 'flex';
+
+    const footer = modal.querySelector('.modal-footer');
+    // Bersihkan footer lama
+    footer.innerHTML = '';
+
+    if (onConfirm) {
+        // Jika ada callback, tampilkan dua tombol: Batal dan Lanjut
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = 'Batal Drawing';
+        cancelBtn.className = 'secondary-btn';
+        cancelBtn.onclick = () => { modal.style.display = 'none'; };
+
+        const confirmBtn = document.createElement('button');
+        confirmBtn.textContent = 'Lanjut Drawing';
+        confirmBtn.className = 'primary-btn';
+        confirmBtn.style.marginLeft = '10px';
+        confirmBtn.onclick = () => {
+            modal.style.display = 'none';
+            onConfirm(); // Jalankan fungsi lanjut
+        };
+
+        footer.appendChild(cancelBtn);
+        footer.appendChild(confirmBtn);
+    } else {
+        // Jika tidak ada callback, tampilkan tombol OK saja (seperti sebelumnya)
+        const okBtn = document.createElement('button');
+        okBtn.textContent = 'OK';
+        okBtn.className = 'primary-btn';
+        okBtn.onclick = () => { modal.style.display = 'none'; };
+        footer.appendChild(okBtn);
+    }
 }
 
 /** Memperbarui tampilan dimensi kontainer */
@@ -124,7 +158,10 @@ function initThreeJS() {
     camera.position.set(20, 15, 20); 
     
     // Renderer
-    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer = new THREE.WebGLRenderer({ 
+        antialias: true, 
+        preserveDrawingBuffer: true 
+    });
     renderer.setSize(visualizationContainer.clientWidth, visualizationContainer.clientHeight);
     visualizationContainer.appendChild(renderer.domElement);
     
@@ -287,14 +324,23 @@ function createRollMesh(radius, height, color, id) {
     const material = new THREE.MeshStandardMaterial({ color: color, transparent: true, opacity: 0.8, name: id });
     const rollMesh = new THREE.Mesh(geometry, material);
     
-    rollMesh.rotation.x = 0; // Roll BERDIRI TEGAK
+    rollMesh.rotation.x = 0; 
     
+    // --- TAMBAHAN: Indikator Titik Pusat Atas ---
+    const dotGeo = new THREE.SphereGeometry(0.05);
+    const dotMat = new THREE.MeshBasicMaterial({ color: 0xffffff }); // Titik Putih
+    const centerDot = new THREE.Mesh(dotGeo, dotMat);
+    centerDot.position.y = height / 2; 
+    rollMesh.add(centerDot);
+    // --------------------------------------------
+
     rollMesh.userData = { 
         isRoll: true, 
         rollRadius: radius,
         rollHeight: height, 
         originalColor: color,
-        id: id 
+        id: id,
+        isHorizontal: false // Untuk fitur rotasi nanti
     };
     return rollMesh;
 }
@@ -477,62 +523,76 @@ function animateCraneLift() {
 function activateMoveMode() {
     if (isMoveModeActive) return;
     
-    // Pastikan kita tidak dalam mode angkat
-     if (cogPivot && cogPivot.parent && cogPivot.parent.name === 'CraneHookSpreader') {
+    if (cogPivot && cogPivot.parent && cogPivot.parent.name === 'CraneHookSpreader') {
         showStatus("Tidak dapat mengaktifkan mode Drag saat kontainer sedang diangkat.", 'error');
         return;
     }
 
-    // Pastikan Roll adalah anak dari SCENE (tidak sedang diangkat)
     const draggableObjects = itemsInScene.filter(item => item.userData.isRoll && item.parent === scene);
     
     if (draggableObjects.length === 0) {
-        showStatus("Tidak ada roll yang bisa dipindahkan atau roll sedang terangkat.", 'error');
+        showStatus("Tidak ada roll yang bisa dipindahkan.", 'error');
         return;
     }
 
     isMoveModeActive = true;
     controls.enabled = false; 
     
-    // Inisialisasi DragControls
     dragControls = new THREE.DragControls(draggableObjects, camera, renderer.domElement);
     
     dragControls.addEventListener('dragstart', function (event) {
         controls.enabled = false;
+        selectedObject = event.object; // Simpan objek yang sedang diklik
         event.object.material.color.set(0xff00ff); 
-        event.object.material.opacity = 0.5; 
     });
 
     dragControls.addEventListener('drag', function (event) {
-        const rollRadius = event.object.userData.rollRadius || 0.5;
-        const rollHeight = event.object.userData.rollHeight || 1.0; 
-        
-        // Batasi pergerakan di sumbu Y (ketinggian roll)
-        event.object.position.y = rollHeight / 2; 
-
-        // Batasi pergerakan di dalam moda (X: L, Z: W)
+        const obj = event.object;
+        const rollRadius = obj.userData.rollRadius || 0.6;
+        const rollHeight = obj.userData.isHorizontal ? (rollRadius * 2) : (obj.userData.rollHeight || 1.0);
+    
+        // Batas Kontainer
         const { L, W } = currentModa;
-        const halfL = L / 2;
-        const halfW = W / 2;
+        obj.position.x = Math.max(-L/2 + rollRadius, Math.min(L/2 - rollRadius, obj.position.x));
+        obj.position.z = Math.max(-W/2 + rollRadius, Math.min(W/2 - rollRadius, obj.position.z));
 
-        // Batas X (Panjang)
-        event.object.position.x = Math.max(-halfL + rollRadius, Math.min(halfL - rollRadius, event.object.position.x));
-        // Batas Z (Lebar)
-        event.object.position.z = Math.max(-halfW + rollRadius, Math.min(halfW - rollRadius, event.object.position.z));
+        let snapped = false;
+        itemsInScene.forEach(otherItem => {
+            if (otherItem === obj) return;
+
+            // Hitung jarak horizontal antar pusat roll
+            const distXZ = Math.sqrt(
+            Math.pow(obj.position.x - otherItem.position.x, 2) + 
+            Math.pow(obj.position.z - otherItem.position.z, 2)
+            );
+
+            // SNAP LOGIC: Jika jarak < 0.4 meter, kunci posisi X dan Z ke item di bawahnya
+            if (distXZ < 0.4) {
+                obj.position.x = otherItem.position.x;
+                obj.position.z = otherItem.position.z;
+            
+                // Tumpuk tepat di atas permukaan item lain
+                const otherHeight = otherItem.userData.isHorizontal ? (otherItem.userData.rollRadius * 2) : otherItem.userData.rollHeight;
+                obj.position.y = otherItem.position.y + (otherHeight / 2) + (rollHeight / 2);
+                snapped = true;
+            }   
+         });
+
+        // Jika tidak ada yang di bawahnya, kembali ke lantai
+        if (!snapped) {
+        obj.position.y = rollHeight / 2;
+        }
     });
 
     dragControls.addEventListener('dragend', function (event) {
         controls.enabled = true;
         event.object.material.color.set(event.object.userData.originalColor); 
-        event.object.material.opacity = 1.0; 
-        
-        // Setelah drag selesai, hitung ulang COG
         calculateCogAndDisplay();
     });
 
     document.getElementById('move-btn').style.display = 'none';
     document.getElementById('save-btn').style.display = 'inline-block';
-    showStatus("Mode Atur Posisi (Drag) AKTIF. Pindahkan roll dengan mouse.", 'warning');
+    showStatus("Mode Atur Posisi Aktif. Gunakan titik pusat putih sebagai kunci.", 'warning');
 }
 
 /** Menonaktifkan Mode Drag */
@@ -848,198 +908,133 @@ function calculateCogAndDisplay() {
  * Mengatur penempatan Roll ke dalam kontainer dengan logika multi-baris, penumpukan dasar,
  * dan implementasi pola Zig-Zag.
  */
-function autoRecommendPlacement(placementMode = 'ZIGZAG') { // Tambahkan parameter opsional
-    // 1. Bersihkan Scene
+/** * FUNGSI UTAMA: REKOMENDASI PENEMPATAN OTOMATIS
+ * Ditambahkan parameter forceDraw agar user bisa memilih "Lanjut Drawing"
+ */
+function autoRecommendPlacement(placementMode = 'ZIGZAG', forceDraw = false) {
+    // 1. Bersihkan Scene dari item lama
     itemsInScene.forEach(item => scene.remove(item));
     itemsInScene.length = 0;
     
-    // 2. Kumpulkan dan validasi data material
     const materialItems = document.querySelectorAll('#material-list .material-item');
     let allItems = [];
     
-    const maxH = currentModa.type === 'LOSSBAK' ? 1000 : currentModa.H; 
+    // Objek untuk menyimpan warna berdasarkan ID agar konsisten
+    const colorCache = {};
 
+    // 2. Kumpulkan data material
     materialItems.forEach(item => {
-        const idInput = item.querySelector('.material-id');
+        const id = item.querySelector('.material-id').value || "Unnamed";
         const qtyInput = item.querySelector('.quantity');
-        const shapeType = item.querySelector('.shape-type').value; 
-        
-        let dims = {};
-        let weight = 0;
-        
-        if (shapeType === 'CYLINDER') {
-            dims.D_alas = parseFloat(item.querySelector('.dim-d').value);
-            dims.H_roll = parseFloat(item.querySelector('.dim-h-cyl').value); 
-            weight = parseFloat(item.querySelector('.weight').value) || 0;
-        } else {
-            return; 
-        }
-        
         const quantity = parseInt(qtyInput.value);
-        if (isNaN(quantity) || quantity <= 0 || isNaN(dims.D_alas)) return;
+        const d = parseFloat(item.querySelector('.dim-d').value) || 1.2;
+        const h = parseFloat(item.querySelector('.dim-h-cyl').value) || 1.0;
+        const weight = parseFloat(item.querySelector('.weight').value) || 0;
 
-        const rollRadius = dims.D_alas / 2;
-        const rollHeight = dims.H_roll;
-        
-        // Validasi Dimensi
-        if (rollHeight > maxH) {
-             showStatus(`Roll ID: ${idInput.value} (Tinggi: ${rollHeight}m) terlalu tinggi! Max: ${maxH.toFixed(2)}m`, 'danger');
-             return;
+        // Gunakan warna yang sudah ada untuk ID yang sama, atau buat baru jika belum ada
+        if (!colorCache[id]) {
+            colorCache[id] = new THREE.Color(`hsl(${Math.random() * 360}, 70%, 50%)`);
         }
-        if (dims.D_alas > currentModa.W) {
-             showStatus(`Roll ID: ${idInput.value} (Dia. Alas: ${dims.D_alas}m) terlalu lebar! Max: ${currentModa.W.toFixed(2)}m`, 'danger');
-             return;
-        }
-        
-        // Tambahkan semua roll ke array untuk diproses
-        for (let i = 0; i < quantity; i++) {
-            // Beri bobot yang lebih tinggi pada roll terberat
-            allItems.push({
-                id: idInput.value,
-                radius: rollRadius,
-                height: rollHeight,
-                dimD: dims.D_alas,
-                dimH: dims.H_roll,
-                weight: weight,
-                color: new THREE.Color(Math.random() * 0xffffff)
-            });
+
+        if (!isNaN(quantity) && quantity > 0) {
+            for (let i = 0; i < quantity; i++) {
+                allItems.push({ 
+                    id, 
+                    radius: d / 2, 
+                    height: h, 
+                    weight, 
+                    color: colorCache[id] 
+                });
+            }
         }
     });
 
-    // 3. Algoritma Penempatan (Zig-Zag & Multi-Baris Z)
-    
-    // Urutkan item berdasarkan bobot (berat) tertinggi untuk menempatkan yang terberat di tengah (COG)
-    allItems.sort((a, b) => b.weight - a.weight);
-    
-    const { L, W } = currentModa;
-    const halfL = L / 2;
-    const halfW = W / 2;
-    
-    // Inisialisasi posisi
-    let currentX_Line1 = -halfL; // Baris 1 (Paling Kiri/Bawah)
-    let currentX_Line2 = -halfL; // Baris 2 (Untuk Zig-Zag)
-    let loadedCount = 0;
-    
-    // --- VARIABEL Z BARU ---
-    let currentZ_start = -halfW; 
-    let maxZ_used = -halfW; 
-    let isLine1 = true; // Status: Menempatkan di Baris 1 (Kiri/Bawah) atau Baris 2 (Kanan/Atas)
+    const { L, W, H } = currentModa;
+    const limitX = L / 2;
+    const limitZ = W / 2;
+    const limitY = currentModa.type === 'LOSSBAK' ? currentModa.maxHeight : currentModa.H;
 
-    let rollIndex = 0;
-    
-    while(rollIndex < allItems.length) {
-        const roll = allItems[rollIndex];
-        const requiredSpaceX = roll.dimD; // Roll berdiri, jadi Panjang di X adalah Diameter Alas
-        const requiredSpaceZ = roll.dimD; // Lebar di Z adalah Diameter Alas
-        const rollRadius = roll.radius;
-        const rollHeight = roll.dimH;
-        
-        // Cek Batas Z (Lebar) - Ini adalah batas awal baris, belum batas Zig-Zag
-        if (currentZ_start + requiredSpaceZ > halfW) {
-            // Tidak ada ruang lagi di Lebar Z. Hentikan pemuatan.
-            showStatus(`Tidak cukup ruang lagi di lebar moda (Z). ${allItems.length - loadedCount} roll tidak dimuat.`, 'warning');
-            break;
+    let curX = -limitX;
+    let curZ = -limitZ;
+    let curY = 0;
+    let layerMaxH = 0;
+    let totalPlaced = 0;
+
+    // 3. Algoritma Penempatan & Stacking
+    for (let i = 0; i < allItems.length; i++) {
+        const roll = allItems[i];
+        const diam = roll.radius * 2;
+
+        // Cek apakah muat di baris Panjang (X)
+        if (curX + diam > limitX + 0.01) { 
+            curX = -limitX;
+            curZ += (placementMode === 'ZIGZAG') ? diam * 0.85 : diam;
         }
 
-        // --- Tentukan Posisi Berdasarkan Mode (Zig-Zag) ---
-        let rollPosX, rollPosZ;
-        let lineFull = false;
-        
-        let isCurrentLine1 = isLine1;
-        if (placementMode !== 'ZIGZAG') {
-            isCurrentLine1 = true; // Force mode linear (Baris 1 saja)
+        // Cek apakah muat di Lebar (Z), jika tidak muat, Naik Lantai (Stacking)
+        if (curZ + diam > limitZ + 0.01) {
+            curX = -limitX;
+            curZ = -limitZ;
+            curY += layerMaxH; 
+            layerMaxH = 0; 
         }
-        
-        if (isCurrentLine1) { // Baris Kiri/Bawah (Standard placement)
-            if (currentX_Line1 + requiredSpaceX > halfL) {
-                lineFull = true;
-            } else {
-                rollPosX = currentX_Line1 + rollRadius; 
-                rollPosZ = currentZ_start + rollRadius;
-                currentX_Line1 += requiredSpaceX; 
-                currentX_Line2 = currentX_Line1; // Sinkronkan X Line 2 jika mode linear
-            }
-        } else { // Baris Kanan/Atas (Untuk Zig-Zag)
-             // Dalam mode Zig-Zag, baris 2 dimulai dari awal kontainer
-             if (currentX_Line2 + requiredSpaceX > halfL) {
-                lineFull = true;
-            } else {
-                // Penempatan Baris 2 untuk Zig-Zag: Geser setengah diameter ke Z positif (belakang)
-                const zigZagZ_offset = requiredSpaceZ / 2; 
-                rollPosZ = currentZ_start + zigZagZ_offset + rollRadius; 
-                
-                // Cek Batas Z Zig-Zag (Pastikan tidak keluar dari W)
-                if (rollPosZ + rollRadius > halfW) {
-                    // Roll zig-zag tidak muat karena terlalu lebar
-                    lineFull = true; // Anggap baris ini penuh dan pindah Z
-                } else {
-                    rollPosX = currentX_Line2 + rollRadius;
-                    currentX_Line2 += requiredSpaceX;
-                    currentX_Line1 = currentX_Line2; // Sinkronkan X Line 1
-                }
-            }
-        }
-        
-        if (lineFull) {
-            // Garis X penuh/tidak muat. Pindah ke Baris Z berikutnya.
-            currentX_Line1 = -halfL; // Reset X Baris 1
-            currentX_Line2 = -halfL; // Reset X Baris 2
-            
-            // Jika kita gagal menempatkan di Baris 2 Zig-Zag, kita harus menggunakan batas Z yang sama
-            // dan mencoba lagi dari Baris 1 pada gulungan yang sama.
-            if (!isLine1 && placementMode === 'ZIGZAG') {
-                 // Roll ini terlalu besar untuk Zig-Zag. Coba lagi dari Baris 1 di baris Z yang sama.
-                 isLine1 = true;
-                 continue; // Ulangi iterasi untuk roll yang sama, mencoba Baris 1
+
+        // --- LOGIKA PERINGATAN (Lanjut atau Batal) ---
+        // Hanya munculkan modal jika forceDraw masih false
+        if (!forceDraw) {
+            // Validasi Tinggi
+            if (curY + roll.height > limitY + 0.01) {
+                showModal(
+                    "❌ Wah ukuran melebihi batas!", 
+                    `Tinggi muatan mencapai ${(curY + roll.height).toFixed(2)}m (Batas: ${limitY}m). Ingin lanjut menggambar meskipun melampaui batas?`, 
+                    "danger",
+                    () => { autoRecommendPlacement(placementMode, true); } // Callback jika pilih Lanjut
+                );
+                return; // Berhenti sementara
             }
 
-            // Jika kita gagal di Baris 1, atau gagal lagi setelah mencoba Baris 1.
-            currentZ_start = maxZ_used; // Posisi Z baru dimulai dari batas roll terluar sebelumnya
-            isLine1 = true; // Selalu mulai baris Z baru dengan Baris 1
-            
-            // Perlu cek batas Z lagi setelah update currentZ_start
-            if (currentZ_start + requiredSpaceZ > halfW) {
-                showStatus(`Tidak cukup ruang lagi di lebar moda (Z). ${allItems.length - loadedCount} roll tidak dimuat.`, 'warning');
-                break; 
+            // Validasi Lebar
+            if (curZ + diam > limitZ + 0.01) {
+                showModal(
+                    "⚠️ Kapasitas Penuh", 
+                    `Muatan tidak muat ke samping. Hanya ${totalPlaced} roll yang masuk. Tetap tampilkan sisanya (akan keluar dari kontainer)?`, 
+                    "warning",
+                    () => { autoRecommendPlacement(placementMode, true); } // Callback jika pilih Lanjut
+                );
+                return; 
             }
-            continue; // Ulangi iterasi untuk roll yang sama
         }
+
+        // 4. Proses Pembuatan Objek 3D
+        const rollMesh = createRollMesh(roll.radius, roll.height, roll.color, roll.id);
+        rollMesh.userData.weight = roll.weight;
+        rollMesh.userData.rollRadius = roll.radius; // Simpan data untuk rotasi
+        rollMesh.userData.rollHeight = roll.height;
+        rollMesh.userData.isHorizontal = false;    // Default berdiri
+
+        let xPos = curX + roll.radius;
         
-        // --- FINAL PENEMPATAN ---
-        
-        const rollMesh = createRollMesh(rollRadius, rollHeight, roll.color, roll.id); 
-        // Simpan berat di userData untuk perhitungan COG nanti
-        rollMesh.userData.weight = roll.weight; 
-        
+        // Logika Zig-zag
+        if(placementMode === 'ZIGZAG' && Math.floor((curZ + limitZ)/diam) % 2 !== 0) {
+            if (xPos + roll.radius < limitX) xPos += roll.radius * 0.5;
+        }
+
         rollMesh.position.set(
-            rollPosX, 
-            rollHeight / 2, 
-            rollPosZ
-        ); 
-        
+            xPos, 
+            curY + (roll.height / 2), 
+            curZ + roll.radius
+        );
+
         scene.add(rollMesh);
         itemsInScene.push(rollMesh);
         
-        loadedCount++;
-        
-        // Perbarui batas Z terjauh yang digunakan di baris ini
-        maxZ_used = Math.max(maxZ_used, rollPosZ + rollRadius); 
-        
-        // Pindah ke baris berikutnya (Zig-Zag)
-        if (placementMode === 'ZIGZAG') {
-            isLine1 = !isLine1; // Ganti baris (Baris 1 <-> Baris 2)
-        } else {
-            // Mode Linear
-            isLine1 = true; // Tetap di Baris 1
-        }
-        
-        rollIndex++; 
+        layerMaxH = Math.max(layerMaxH, roll.height);
+        curX += diam;
+        totalPlaced++;
     }
 
-    // 4. Panggil fungsi COG terpusat
     calculateCogAndDisplay();
 }
-
 
 /** Memvisualisasikan semua item planner (Roll) */
 function visualizePlannerItems() {
@@ -1047,6 +1042,153 @@ function visualizePlannerItems() {
     autoRecommendPlacement();
 }
 
+/** Fungsi untuk Reset Semua Data */
+function resetPlanner() {
+    if (confirm("Apakah Anda yakin ingin menghapus semua data dan memulai ulang?")) {
+        // 1. Kosongkan daftar material di UI
+        document.getElementById('material-list').innerHTML = '';
+        
+        // 2. Bersihkan item di scene 3D
+        itemsInScene.forEach(item => scene.remove(item));
+        itemsInScene.length = 0;
+        
+        // 3. Tambahkan kembali 1 item kosong default
+        addMaterialItem();
+        
+        // 4. Reset status berat & COG
+        calculateCogAndDisplay();
+        
+        showStatus("Data berhasil direset.", "info");
+    }
+}
+
+/** Fungsi untuk Mengambil Gambar dari 4 Sudut Pandang */
+async function captureMultipleViews() {
+    showStatus("Sedang mengambil gambar dari berbagai sisi...", "warning");
+    
+    const views = [
+        { name: 'Perspektif', pos: [20, 15, 20] },
+        { name: 'Atas', pos: [0, 25, 0] },
+        { name: 'Samping', pos: [25, 5, 0] },
+        { name: 'Depan', pos: [0, 5, 25] }
+    ];
+
+    // Simpan posisi kamera asli user
+    const originalPos = camera.position.clone();
+    const originalTarget = controls.target.clone();
+
+    for (const view of views) {
+        // Pindahkan kamera
+        camera.position.set(...view.pos);
+        controls.target.set(0, 0, 0);
+        controls.update();
+        
+        // Render ulang scene
+        renderer.render(scene, camera);
+        
+        // Ambil data URL gambar
+        const dataURL = renderer.domElement.toDataURL('image/png');
+        
+        // Download gambar
+        const link = document.createElement('a');
+        link.download = `LoadPlan_${view.name}_${Date.now()}.png`;
+        link.href = dataURL;
+        link.click();
+        
+        // Tunggu sebentar agar tidak bentrok
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    // Kembalikan kamera ke posisi semula
+    camera.position.copy(originalPos);
+    controls.target.copy(originalTarget);
+    controls.update();
+    
+    showStatus("4 Gambar berhasil diunduh!", "success");
+}
+
+// Fungsi untuk merotasi roll yang dipilih
+function rotateSelectedRoll() {
+    if (!selectedObject) {
+        showStatus("Pilih roll terlebih dahulu dengan cara klik/geser dalam mode Drag!", "warning");
+        return;
+    }
+
+    if (!selectedObject.userData.isHorizontal) {
+        // REBAH (Horizontal) - Putar di sumbu Z
+        selectedObject.rotation.z = Math.PI / 2;
+        // Posisi Y menjadi setinggi radius (karena posisi silinder dihitung dari tengah)
+        selectedObject.position.y = selectedObject.userData.rollRadius;
+        selectedObject.userData.isHorizontal = true;
+    } else {
+        // BERDIRI (Vertical)
+        selectedObject.rotation.z = 0;
+        selectedObject.position.y = selectedObject.userData.rollHeight / 2;
+        selectedObject.userData.isHorizontal = false;
+    }
+    
+    calculateCogAndDisplay();
+    showStatus("Roll berhasil diputar.", "success");
+function updateDashboardStats(materials) {
+    const tableBody = document.getElementById('summary-table-body');
+    const weightBar = document.getElementById('weight-bar');
+    const weightText = document.getElementById('weight-percent');
+    
+    let totalWeight = 0;
+    let tableHTML = '';
+    const maxWeight = 30000; // Kapasitas 30 Ton
+
+    materials.forEach(m => {
+        totalWeight += (m.weight * m.qty);
+        tableHTML += `
+            <tr style="border-bottom: 1px solid #0f3460;">
+                <td style="padding: 8px 5px;">${m.id}</td>
+                <td style="padding: 8px 5px;">${m.qty}x</td>
+                <td style="padding: 8px 5px;">${(m.weight * m.qty).toLocaleString()} kg</td>
+            </tr>`;
+    });
+
+    // Update Tabel
+    tableBody.innerHTML = tableHTML || '<tr><td colspan="3" style="text-align: center; padding: 20px;">Kosong</td></tr>';
+
+    // Update Progress Bar Berat
+    const weightPercentage = Math.min((totalWeight / maxWeight) * 100, 100);
+    weightBar.style.width = weightPercentage + '%';
+    weightText.textContent = weightPercentage.toFixed(1) + '%';
+    
+    // Ubah warna bar jika overload
+    weightBar.style.backgroundColor = totalWeight > maxWeight ? '#dc3545' : '#e94560';
+    }
+function updateSummary() {
+    let totalWeight = 0;
+    let totalItems = 0;
+    
+    // Ambil semua item material yang ada di daftar input
+    const materialItems = document.querySelectorAll('.material-item');
+    
+    materialItems.forEach(item => {
+        const qty = parseInt(item.querySelector('.quantity').value) || 0;
+        const weight = parseFloat(item.querySelector('.weight').value) || 0;
+        
+        totalWeight += (weight * qty);
+        totalItems += qty;
+    });
+
+    // Update elemen HTML (sesuaikan ID dengan yang ada di index.html Anda)
+    const weightEl = document.getElementById('total-weight');
+    const itemsEl = document.getElementById('total-items');
+    const capacityEl = document.getElementById('capacity-percentage');
+
+    if (weightEl) weightEl.innerText = `${totalWeight.toLocaleString()} Kg`;
+    if (itemsEl) itemsEl.innerText = totalItems;
+    
+    // Hitung persentase kapasitas jika ada batas Max Weight
+    if (currentModa && weightEl) {
+        const percent = (totalWeight / currentModa.maxWeight) * 100;
+        if (capacityEl) capacityEl.innerText = `${percent.toFixed(1)}%`;
+    }
+}
+}
 
 // --- 7. INITIALIZATION & EVENT LISTENERS ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -1060,6 +1202,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Event listener untuk tombol utama
     document.getElementById('add-material-btn')?.addEventListener('click', addMaterialItem);
     document.getElementById('visualize-btn')?.addEventListener('click', visualizePlannerItems);
+    document.getElementById('reset-btn')?.addEventListener('click', resetPlanner);
+    document.getElementById('save-capture-btn')?.addEventListener('click', captureMultipleViews);
     
     // EVENT LISTENER BARU UNTUK REKOMENDASI OTOMATIS
     document.getElementById('auto-recommend-btn')?.addEventListener('click', autoRecommendPlacement);
@@ -1075,6 +1219,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Event listener untuk Import Data
     document.getElementById('import-btn')?.addEventListener('click', importMaterialFromPaste);
 
+    // Event listener untuk Rotate
+    document.getElementById('rotate-btn')?.addEventListener('click', rotateSelectedRoll);
+
     // Event listener untuk pemilihan Moda Kontainer
     document.getElementById('moda-selector')?.addEventListener('change', (e) => {
         const modaKey = e.target.value;
@@ -1086,6 +1233,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
+    // Contoh penempatan di event listener 'input' pada Qty
+    document.addEventListener('input', (e) => {
+        if (e.target.classList.contains('quantity')) {
+        autoRecommendPlacement(); // Fungsi yang sudah Anda punya
+        updateSummary();          // Tambahkan ini!
+        }
+    });
+
     // Event listener untuk Modal
     document.querySelector('.modal-ok-btn')?.addEventListener('click', () => {
         document.getElementById('custom-modal').style.display = 'none';
