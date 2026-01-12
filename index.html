@@ -32,8 +32,8 @@
                     <option value="40HC">40ft HC (12.2 x 2.45 x 2.48)</option>
                     <option value="20GP">20ft GP (6.2 x 2.5 x 2.5)</option>
                     <option value="WINGBOX">Wing Box (11.0 x 2.4 x 2.45)</option>
-                    <option value="TRAILER_LOSSBAK">Trailer Lossbak (12.0 x 2.45 x T-Bebas)</option>
-                    <option value="TRONTON_LOSSBAK">Tronton Lossbak (9.5 x 2.4 x T-Bebas)</option>
+                    <option value="TRAILER_LOSSBAK">Trailer Lossbak (12.0 x 2.45 x 3.1)</option>
+                    <option value="TRONTON_LOSSBAK">Tronton Lossbak (9.5 x 2.4 x 3.1)</option>
                     <option value="custom">Custom</option>
                 </select>
                 <div id="current-moda-display" class="info" style="margin-top: 5px; font-size: 0.9em; font-weight: bold;"></div>
@@ -52,12 +52,17 @@
             
             <div class="control-group">
                 <button id="visualize-btn" class="success-btn">▶️ Visualisasi</button>
-                <button id="auto-recommend-btn" class="primary-btn" style="margin-left: 10px;">✨ Rekomendasi Otomatis</button>
+                <button id="auto-recommend-btn" class="primary-btn">✨ Rekomendasi Otomatis</button>
+    
+                <button id="reset-btn" class="danger-btn" style="margin-top: 10px; width: 100%;">🧹 Reset Semua</button>
+                <button id="save-capture-btn" class="warning-btn" style="margin-top: 10px; width: 100%;">📸 Simpan Gambar (4 Sisi)</button>
+    
                 <div id="weight-status" class="info" style="margin-top: 10px; font-weight: bold;">Total Berat: 0 kg</div>
             </div>
 
             <div class="control-group" style="margin-top: 20px;">
                 <button id="move-btn" class="secondary-btn" style="width: 49%;">🔄 Atur Posisi (Drag)</button>
+                <button id="rotate-btn" class="warning-btn" style="width: 100%;">🔄 Rotasi Roll Terpilih</button>
                 <button id="save-btn" class="success-btn" style="width: 49%; display: none;">✅ Selesai Atur</button>
             </div>
             
@@ -78,6 +83,52 @@
                 <button id="crane-lift-btn" class="secondary-btn">⬆️ Angkat Kontainer</button>
             </div>
             <div id="status-message" class="status-box info"></div>
+            <div class="dashboard-bottom" style="margin-top: 20px; display: grid; grid-template-columns: 1fr 1.5fr; gap: 15px;">
+    
+    <div class="stats-panel" style="background: var(--secondary-bg); padding: 15px; border-radius: var(--border-radius); border: 1px solid var(--border-color);">
+        <h3 style="color: var(--accent-color); margin-top: 0; font-size: 1em; border-bottom: 1px solid var(--border-color); padding-bottom: 5px;">📊 Statistik Kapasitas</h3>
+        
+        <div style="margin-top: 15px;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.8em; margin-bottom: 5px;">
+                <span>Berat Muatan (Max 30 Ton)</span>
+                <span id="weight-percent">0%</span>
+            </div>
+            <div style="width: 100%; background: #0f3460; height: 10px; border-radius: 5px; overflow: hidden;">
+                <div id="weight-bar" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.5s;"></div>
+            </div>
+        </div>
+
+        <div style="margin-top: 15px;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.8em; margin-bottom: 5px;">
+                <span>Ruang Lantai Kontainer</span>
+                <span id="space-percent">0%</span>
+            </div>
+            <div style="width: 100%; background: #0f3460; height: 10px; border-radius: 5px; overflow: hidden;">
+                <div id="space-bar" style="width: 0%; height: 100%; background: #28a745; transition: width 0.5s;"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="summary-panel" style="background: var(--secondary-bg); padding: 15px; border-radius: var(--border-radius); border: 1px solid var(--border-color);">
+        <h3 style="color: var(--highlight-color); margin-top: 0; font-size: 1em; border-bottom: 1px solid var(--border-color); padding-bottom: 5px;">📋 Ringkasan Material</h3>
+        <div style="max-height: 150px; overflow-y: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.85em; text-align: left;">
+                <thead>
+                    <tr style="color: var(--accent-color); border-bottom: 1px solid #333;">
+                        <th style="padding: 8px 5px;">ID Material</th>
+                        <th style="padding: 8px 5px;">Qty</th>
+                        <th style="padding: 8px 5px;">Berat (Kg)</th>
+                    </tr>
+                </thead>
+                <tbody id="summary-table-body">
+                    <tr>
+                        <td colspan="3" style="text-align: center; padding: 20px; opacity: 0.5;">Belum ada visualisasi muatan.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
         </section>
     </div>
 
@@ -114,5 +165,15 @@
     </div>
 
     <script src="app.js"></script>
+    <footer>
+        <div class="footer-content">
+            <p>&copy; <span id="current-year"></span> Giyas. All Rights Reserved.</p>
+        </div>
+    </footer>
+
+    <script>
+        // Kode untuk memperbarui tahun secara otomatis
+        document.getElementById('current-year').textContent = new Date().getFullYear();
+    </script>
 </body>
 </html>
